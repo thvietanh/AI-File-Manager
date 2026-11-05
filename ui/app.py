@@ -129,6 +129,12 @@ class AIFileManager(QMainWindow):
             "Tên file", "Định dạng", "Kích thước", "Đường dẫn"
         ])
 
+        # Lock row height
+        self.table.verticalHeader().setSectionResizeMode(
+            QHeaderView.ResizeMode.Fixed
+        )
+        self.table.verticalHeader().setDefaultSectionSize(30)
+
         # Auto-resize columns
         header = self.table.horizontalHeader()
 
