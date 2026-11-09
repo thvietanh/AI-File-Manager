@@ -10,6 +10,9 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 
+# Services
+from function.file_services import get_files, open_file
+from process.doc_extract import extract
 
 class AIFileManager(QMainWindow):
     def __init__(self):
@@ -223,19 +226,8 @@ class AIFileManager(QMainWindow):
 
         self.files.clear()
 
-        for root, dirs, filenames in os.walk(self.root_folder):
-            for filename in filenames:
-                path = Path(root) / filename
-
-                try:
-                    self.files.append({
-                        "name": filename,
-                        "extension": path.suffix.lower(),
-                        "size": path.stat().st_size,
-                        "path": str(path)
-                    })
-                except OSError:
-                    continue
+        # get_files service
+        self.files = get_files(self.root_folder)
 
         self.search_files()
 
@@ -291,17 +283,8 @@ class AIFileManager(QMainWindow):
         file_path = self.table.item(row, 3).text()
 
         try:
-            os.startfile(file_path)
+            open_file(file_path)
         except OSError as error:
             QMessageBox.warning(
                 self, "Lỗi", f"Không thể mở file:\n{error}"
             )
-
-
-if __name__ == "__main__":
-    app = QApplication(sys.argv)
-
-    window = AIFileManager()
-    window.show()
-
-    sys.exit(app.exec())
