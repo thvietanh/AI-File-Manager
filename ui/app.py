@@ -15,6 +15,13 @@ from PySide6.QtCore import QDate, Qt
 from function.file_services import get_files, open_file
 from process.doc_extract import extract
 
+# Database
+from database.data import (
+    create_table,
+    insert_document,
+    get_documents,
+    synchronize_documents
+)
 
 class AIFileManager(QMainWindow):
     def __init__(self):
@@ -25,6 +32,8 @@ class AIFileManager(QMainWindow):
         self.files = []
 
         self.scaling_factor = 0.7
+
+        create_table()
 
         self.setup_ui()
         self.setup_window_size()
@@ -406,8 +415,51 @@ class AIFileManager(QMainWindow):
             return
 
         self.files.clear()
-        self.files = get_files(self.root_folder)
+        scanned_files = get_files(self.root_folder)
 
+        # Synchronize the database with the scanned files
+        synchronize_documents(self.root_folder, scanned_files)
+
+        for file in scanned_files:
+            # Extract document information and insert into database
+            file_path = Path(file["path"])
+            try:
+                content = extract(file_path)
+            except Exception as e:
+                print(f"Error extracting content from {file_path}: {e}")
+                content = None
+
+            # Insert document information into the database
+            insert_document(
+                file_name=file["name"],
+                file_size=file["size"],
+                file_type=file["extension"],
+                file_path=file_path,
+                content=content
+            )
+
+        # Get documents from database instead of using scanned_files
+        documents = get_documents()
+        self.files = []
+
+        root_path = os.path.normcase(os.path.abspath(self.root_folder))
+
+        for doc in documents:
+            document_id, file_name, file_size, file_type, file_path, content, created_at = doc
+
+            # Ensure the file path is within the selected root folder
+            if os.path.normcase(os.path.abspath(file_path)).startswith(root_path):
+                self.files.append({
+                    "id": document_id,
+                    "name": file_name,
+                    "size": file_size,
+                    "extension": file_type,
+                    "path": file_path,
+                    "content": content,
+                    "created_at": created_at
+                })
+
+        # Display the files in the table
         self.search_files()
 
     def search_files(self):
@@ -493,12 +545,3 @@ class AIFileManager(QMainWindow):
             "Bộ lọc giao diện đã sẵn sàng. "
             "Chưa kết nối database."
         )
-
-
-if __name__ == "__main__":
-    app = QApplication(sys.argv)
-
-    window = AIFileManager()
-    window.show()
-
-    sys.exit(app.exec())

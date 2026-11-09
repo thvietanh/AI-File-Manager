@@ -189,3 +189,42 @@ def update_document(document_id, file_name, file_size, file_type, file_path, con
     finally:
         connection.close()
 
+# Synchronization function to update the database with the current state of the file system
+def synchronize_documents(folder_path, scanned_files):
+    connection = create_connection()
+
+    try:
+        cursor = connection.cursor()
+        root_path = Path(folder_path).resolve()
+        cursor.execute("SELECT id, file_path FROM documents")
+        existing_documents = cursor.fetchall()
+        existing_file_paths = {}
+
+        for document_id, file_path in existing_documents:
+            path = Path(file_path).resolve()
+
+            try:
+                path.relative_to(root_path)
+                existing_file_paths[str(path).casefold()] = document_id
+            except ValueError:
+                pass
+
+        # Scanned files
+        scanned_paths = {
+            str(Path(file["path"]).resolve()).casefold()
+            for file in scanned_files
+        }
+
+        # Delete documents that no longer exist
+        for file_path, document_id in existing_file_paths.items():
+            if file_path not in scanned_paths:
+                cursor.execute(
+                    "DELETE FROM documents WHERE id = ?",
+                    (document_id,)
+                )
+
+        connection.commit()
+    except sqlite3.Error as e:
+        print(f"Error synchronizing documents: {e}")
+    finally:
+        connection.close()
