@@ -1,5 +1,5 @@
 from pathlib import Path
-import fitz
+import pymupdf
 from docx import Document
 
 
@@ -14,7 +14,7 @@ def extract(file_path):
         )
 
     elif extension == ".pdf":
-        with fitz.open(file_path) as pdf:
+        with pymupdf.open(file_path) as pdf:
             return "\n".join(
                 page.get_text() for page in pdf
             )
