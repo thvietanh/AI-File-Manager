@@ -236,5 +236,10 @@ def clear_database():
 
     cursor.execute("DELETE FROM documents")
 
+    cursor.execute("""
+        DELETE FROM sqlite_sequence
+        WHERE name = 'documents'
+    """)
+
     conn.commit()
     conn.close()
