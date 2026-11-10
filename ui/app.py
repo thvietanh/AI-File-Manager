@@ -20,7 +20,8 @@ from database.data import (
     create_table,
     insert_document,
     get_documents,
-    synchronize_documents
+    synchronize_documents,
+    clear_database
 )
 
 class AIFileManager(QMainWindow):
@@ -406,6 +407,7 @@ class AIFileManager(QMainWindow):
         )
 
         if folder:
+            clear_database()
             self.root_folder = folder
             self.folder_label.setText(folder)
             self.load_files()

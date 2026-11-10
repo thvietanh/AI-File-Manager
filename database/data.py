@@ -228,3 +228,13 @@ def synchronize_documents(folder_path, scanned_files):
         print(f"Error synchronizing documents: {e}")
     finally:
         connection.close()
+
+# Clear database
+def clear_database():
+    conn = create_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("DELETE FROM documents")
+
+    conn.commit()
+    conn.close()
