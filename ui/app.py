@@ -1,3 +1,4 @@
+
 import os
 import sys
 from pathlib import Path
@@ -13,18 +14,22 @@ from PySide6.QtCore import QDate, Qt
 
 # Services
 from function.file_services import get_files, open_file
-from process.doc_extract import extract
+from process.doc_extract import extract, official_extract
 
 # Database
 from database.data import (
     create_table,
     insert_document,
+    insert_official_document,
+    get_official_document,
     get_documents,
-    synchronize_documents,
-    clear_database
+    clear_database,
+    get_filtered_official_documents
 )
 
+
 class AIFileManager(QMainWindow):
+
     def __init__(self):
         super().__init__()
 
@@ -32,12 +37,19 @@ class AIFileManager(QMainWindow):
         self.root_folder = ""
         self.files = []
 
-        self.scaling_factor = 0.7
+        # Display mode
+        self.show_official_info = False
+        self.displayed_files = []
+        self.official_metadata = {}
+
+        self.scaling_factor = 0.8
 
         create_table()
 
         self.setup_ui()
         self.setup_window_size()
+
+    # Window size
 
     def setup_window_size(self):
         screen = QApplication.primaryScreen()
@@ -53,6 +65,8 @@ class AIFileManager(QMainWindow):
         y = geometry.y() + (geometry.height() - height) // 2
 
         self.move(x, y)
+
+    # Setup UI
 
     def setup_ui(self):
         central = QWidget()
@@ -163,9 +177,10 @@ class AIFileManager(QMainWindow):
             date_edit.setDisplayFormat("dd/MM/yyyy")
             date_edit.setMinimumDate(QDate(1900, 1, 1))
             date_edit.setMaximumDate(QDate(2100, 12, 31))
+
+            date_edit.setSpecialValueText(" ")
             date_edit.setDate(date_edit.minimumDate())
 
-            # Set the style for QDateEdit
             date_edit.setStyleSheet("""
                 QDateEdit {
                     font-size: 11px;
@@ -231,7 +246,14 @@ class AIFileManager(QMainWindow):
         choose_button.clicked.connect(self.choose_folder)
 
         refresh_button = QPushButton("Làm mới")
-        refresh_button.clicked.connect(self.load_files)
+        refresh_button.clicked.connect(self.refresh_files)
+
+        self.mode_button = QPushButton(
+            "Hiện thông tin công văn"
+        )
+        self.mode_button.clicked.connect(
+            self.toggle_document_mode
+        )
 
         open_button = QPushButton("Mở file")
         open_button.clicked.connect(
@@ -240,6 +262,7 @@ class AIFileManager(QMainWindow):
 
         toolbar.addWidget(choose_button)
         toolbar.addWidget(refresh_button)
+        toolbar.addWidget(self.mode_button)
         toolbar.addWidget(open_button)
 
         left_layout.addWidget(toolbar_group)
@@ -399,7 +422,7 @@ class AIFileManager(QMainWindow):
 
         return widget
 
-    # Functions for folder selection, file loading, searching, and opening files
+    # Folder selection
 
     def choose_folder(self):
         folder = QFileDialog.getExistingDirectory(
@@ -412,27 +435,29 @@ class AIFileManager(QMainWindow):
             self.folder_label.setText(folder)
             self.load_files()
 
+    # Load files
+
     def load_files(self):
         if not self.root_folder:
             return
 
         self.files.clear()
+        self.official_metadata.clear()
+
         scanned_files = get_files(self.root_folder)
 
-        # Synchronize the database with the scanned files
-        synchronize_documents(self.root_folder, scanned_files)
-
         for file in scanned_files:
-            # Extract document information and insert into database
             file_path = Path(file["path"])
+
             try:
                 content = extract(file_path)
             except Exception as e:
-                print(f"Error extracting content from {file_path}: {e}")
+                print(
+                    f"Error extracting content from {file_path}: {e}"
+                )
                 content = None
 
-            # Insert document information into the database
-            insert_document(
+            document_id = insert_document(
                 file_name=file["name"],
                 file_size=file["size"],
                 file_type=file["extension"],
@@ -440,17 +465,54 @@ class AIFileManager(QMainWindow):
                 content=content
             )
 
-        # Get documents from database instead of using scanned_files
-        documents = get_documents()
-        self.files = []
+            if document_id is not None and content:
+                metadata = official_extract(content)
 
-        root_path = os.path.normcase(os.path.abspath(self.root_folder))
+                if metadata:
+                    insert_official_document(
+                        document_id, metadata
+                    )
+
+        # Get documents
+        documents = get_documents()
+
+        # Load official metadata
+        official_documents = get_official_document()
+
+        self.official_metadata = {}
+
+        for doc in official_documents:
+            self.official_metadata[doc[0]] = {
+                "document_number": doc[6],
+                "signing_date": doc[7],
+                "effective_date": doc[8],
+                "deadline_date": doc[9]
+            }
+
+        root_path = os.path.normcase(
+            os.path.abspath(self.root_folder)
+        )
 
         for doc in documents:
-            document_id, file_name, file_size, file_type, file_path, content, created_at = doc
+            (
+                document_id,
+                file_name,
+                file_size,
+                file_type,
+                file_path,
+                content,
+                created_at
+            ) = doc
 
-            # Ensure the file path is within the selected root folder
-            if os.path.normcase(os.path.abspath(file_path)).startswith(root_path):
+            absolute_path = os.path.normcase(
+                os.path.abspath(file_path)
+            )
+
+            # Ensure the file is inside selected folder
+            if (
+                os.path.commonpath([absolute_path, root_path])
+                == root_path
+            ):
                 self.files.append({
                     "id": document_id,
                     "name": file_name,
@@ -461,8 +523,9 @@ class AIFileManager(QMainWindow):
                     "created_at": created_at
                 })
 
-        # Display the files in the table
         self.search_files()
+
+    # Search files
 
     def search_files(self):
         keyword = self.search_input.text().strip().lower()
@@ -482,7 +545,54 @@ class AIFileManager(QMainWindow):
 
         self.display_results(results)
 
+    # Display results
+
     def display_results(self, results):
+        self.displayed_files = results
+
+        if self.show_official_info:
+            headers = [
+                "Tên file",
+                "Định dạng",
+                "Kích thước",
+                "Đường dẫn",
+                "Số công văn",
+                "Ngày ký",
+                "Ngày hiệu lực",
+                "Deadline"
+            ]
+        else:
+            headers = [
+                "Tên file",
+                "Định dạng",
+                "Kích thước",
+                "Đường dẫn"
+            ]
+
+        self.table.setColumnCount(len(headers))
+        self.table.setHorizontalHeaderLabels(headers)
+
+        header = self.table.horizontalHeader()
+
+        header.setSectionResizeMode(
+            0, QHeaderView.ResizeMode.Stretch
+        )
+        header.setSectionResizeMode(
+            1, QHeaderView.ResizeMode.ResizeToContents
+        )
+        header.setSectionResizeMode(
+            2, QHeaderView.ResizeMode.ResizeToContents
+        )
+        header.setSectionResizeMode(
+            3, QHeaderView.ResizeMode.Stretch
+        )
+
+        if self.show_official_info:
+            for col in range(4, 8):
+                header.setSectionResizeMode(
+                    col, QHeaderView.ResizeMode.ResizeToContents
+                )
+
         self.table.setRowCount(len(results))
 
         for row, file in enumerate(results):
@@ -495,6 +605,18 @@ class AIFileManager(QMainWindow):
                 file["path"]
             ]
 
+            if self.show_official_info:
+                metadata = self.official_metadata.get(
+                    file["id"], {}
+                )
+
+                values.extend([
+                    metadata.get("document_number") or "",
+                    metadata.get("signing_date") or "",
+                    metadata.get("effective_date") or "",
+                    metadata.get("deadline_date") or ""
+                ])
+
             for col, value in enumerate(values):
                 item = QTableWidgetItem(str(value))
                 item.setToolTip(str(value))
@@ -503,6 +625,24 @@ class AIFileManager(QMainWindow):
         self.status_label.setText(
             f"Tìm thấy {len(results)} tài liệu"
         )
+
+    # Toggle display mode
+
+    def toggle_document_mode(self):
+        self.show_official_info = not self.show_official_info
+
+        if self.show_official_info:
+            self.mode_button.setText(
+                "Ẩn thông tin công văn"
+            )
+        else:
+            self.mode_button.setText(
+                "Hiện thông tin công văn"
+            )
+
+        self.display_results(self.displayed_files)
+
+    # Open selected file
 
     def open_selected_file(self):
         row = self.table.currentRow()
@@ -540,10 +680,74 @@ class AIFileManager(QMainWindow):
         for date_edit in date_edits:
             date_edit.setDate(date_edit.minimumDate())
 
+        self.search_files()
+
     def filter_documents(self):
-        QMessageBox.information(
-            self,
-            "Thông báo",
-            "Bộ lọc giao diện đã sẵn sàng. "
-            "Chưa kết nối database."
+
+        document_number = self.document_number.text().strip()
+
+        def get_date(date_edit):
+            if date_edit.date() == date_edit.minimumDate():
+                return None
+
+            return date_edit.date().toString("yyyy-MM-dd")
+
+        results = get_filtered_official_documents(
+            document_number=document_number or None,
+
+            signing_from=get_date(self.signing_from),
+            signing_to=get_date(self.signing_to),
+
+            effective_from=get_date(self.effective_from),
+            effective_to=get_date(self.effective_to),
+
+            deadline_from=get_date(self.deadline_from),
+            deadline_to=get_date(self.deadline_to)
         )
+
+        filtered_files = []
+
+        keyword = self.search_input.text().strip().lower()
+        file_type = self.type_filter.currentText()
+
+        for doc in results:
+            (
+                document_id,
+                name,
+                size,
+                extension,
+                path,
+                content,
+                created_at
+            ) = doc
+
+            if keyword and keyword not in name.lower():
+                continue
+
+            if (
+                file_type != "Tất cả định dạng"
+                and extension != file_type
+            ):
+                continue
+
+            filtered_files.append({
+                "id": document_id,
+                "name": name,
+                "size": size,
+                "extension": extension,
+                "path": path,
+                "content": content,
+                "created_at": created_at
+            })
+
+        self.display_results(filtered_files)
+
+    # Refresh files
+
+    def refresh_files(self):
+        if not self.root_folder:
+            return
+
+        clear_database()
+        self.load_files()
+

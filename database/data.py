@@ -104,6 +104,34 @@ def insert_document(file_name, file_size, file_type, file_path, content=None):
     finally:
         connection.close()
 
+def insert_official_document(document_id, content):
+    connection = create_connection()
+    try:
+        cursor = connection.cursor()
+        cursor.execute("""
+            INSERT INTO official_documents(
+                document_id,
+                document_number,
+                signing_date,
+                effective_date,
+                deadline_date
+            )
+            VALUES (?, ?, ?, ?, ?)
+        """,(document_id,
+             content.get("document_number"),
+             content.get("signing_date"),
+             content.get("effective_date"),
+             content.get("deadline_date")
+             ))
+
+        connection.commit()
+        return True
+    except sqlite3.Error as e:
+        print(f"Error inserting official document: {e}")
+        return False
+    finally:
+        connection.close()
+
 def get_documents():
     connection = create_connection()
 
@@ -128,6 +156,39 @@ def get_documents():
 
     except sqlite3.Error as e:
         print(f"Error getting documents: {e}")
+        return []
+
+    finally:
+        connection.close()
+
+def get_official_document():
+    connection = create_connection()
+
+    try:
+        cursor = connection.cursor()
+
+        cursor.execute("""
+            SELECT
+                d.id,
+                d.file_name,
+                d.file_size,
+                d.file_type,
+                d.file_path,
+                d.content,
+                o.document_number,
+                o.signing_date,
+                o.effective_date,
+                o.deadline_date
+            FROM documents d
+            INNER JOIN official_documents o
+                ON d.id = o.document_id
+            ORDER BY d.created_at DESC
+        """)
+
+        return cursor.fetchall()
+
+    except sqlite3.Error as e:
+        print(f"Error getting official documents: {e}")
         return []
 
     finally:
@@ -189,46 +250,6 @@ def update_document(document_id, file_name, file_size, file_type, file_path, con
     finally:
         connection.close()
 
-# Synchronization function to update the database with the current state of the file system
-def synchronize_documents(folder_path, scanned_files):
-    connection = create_connection()
-
-    try:
-        cursor = connection.cursor()
-        root_path = Path(folder_path).resolve()
-        cursor.execute("SELECT id, file_path FROM documents")
-        existing_documents = cursor.fetchall()
-        existing_file_paths = {}
-
-        for document_id, file_path in existing_documents:
-            path = Path(file_path).resolve()
-
-            try:
-                path.relative_to(root_path)
-                existing_file_paths[str(path).casefold()] = document_id
-            except ValueError:
-                pass
-
-        # Scanned files
-        scanned_paths = {
-            str(Path(file["path"]).resolve()).casefold()
-            for file in scanned_files
-        }
-
-        # Delete documents that no longer exist
-        for file_path, document_id in existing_file_paths.items():
-            if file_path not in scanned_paths:
-                cursor.execute(
-                    "DELETE FROM documents WHERE id = ?",
-                    (document_id,)
-                )
-
-        connection.commit()
-    except sqlite3.Error as e:
-        print(f"Error synchronizing documents: {e}")
-    finally:
-        connection.close()
-
 # Clear database
 def clear_database():
     conn = create_connection()
@@ -243,3 +264,65 @@ def clear_database():
 
     conn.commit()
     conn.close()
+
+# Get documents by filters
+def get_filtered_official_documents(
+    document_number=None,
+    signing_from=None,
+    signing_to=None,
+    effective_from=None,
+    effective_to=None,
+    deadline_from=None,
+    deadline_to=None
+):
+    connection = create_connection()
+    cursor = connection.cursor()
+
+    query = """
+        SELECT
+            d.id,
+            d.file_name,
+            d.file_size,
+            d.file_type,
+            d.file_path,
+            d.content,
+            d.created_at
+        FROM documents d
+        INNER JOIN official_documents o
+            ON d.id = o.document_id
+        WHERE 1 = 1
+    """
+
+    params = []
+
+    if document_number:
+        query += " AND o.document_number LIKE ?"
+        params.append(f"%{document_number}%")
+
+    date_filters = [
+        ("signing_date", signing_from, signing_to),
+        ("effective_date", effective_from, effective_to),
+        ("deadline_date", deadline_from, deadline_to)
+    ]
+
+    for column, date_from, date_to in date_filters:
+        # Convert dd/mm/yy to yyyy/mm/dd for comparison
+        date_sql = (
+            f"(substr(o.{column}, 7, 4) || '-' || "
+            f"substr(o.{column}, 4, 2) || '-' || "
+            f"substr(o.{column}, 1, 2))"
+        )
+
+        if date_from:
+            query += f" AND {date_sql} >= ?"
+            params.append(date_from)
+
+        if date_to:
+            query += f" AND {date_sql} <= ?"
+            params.append(date_to)
+
+    cursor.execute(query, params)
+    results = cursor.fetchall()
+
+    connection.close()
+    return results
