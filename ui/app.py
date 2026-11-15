@@ -1,4 +1,3 @@
-
 import os
 import sys
 from pathlib import Path
@@ -26,7 +25,6 @@ from database.data import (
     clear_database,
     get_filtered_official_documents
 )
-
 
 class AIFileManager(QMainWindow):
 
