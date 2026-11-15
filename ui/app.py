@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout, QPushButton, QLineEdit, QLabel,
     QTableWidget, QTableWidgetItem, QFileDialog,
     QComboBox, QHeaderView, QMessageBox, QSizePolicy,
-    QDateEdit, QGroupBox, QFormLayout
+    QDateEdit, QGroupBox, QFormLayout, QTextEdit
 )
 from PySide6.QtCore import QDate, Qt
 
@@ -292,6 +292,15 @@ class AIFileManager(QMainWindow):
             "Đường dẫn"
         ])
 
+        # Preview tab
+
+        preview_label = QLabel("Nội dung trích xuất")
+        preview_label.setStyleSheet("QLabel {font-weight: bold;}")
+        self.preview_table = QTextEdit()
+        self.preview_table.setReadOnly(True)
+        self.preview_table.setPlaceholderText("Chọn 1 file để xem trước nội dung...")
+
+
         self.table.verticalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Fixed
         )
@@ -312,9 +321,10 @@ class AIFileManager(QMainWindow):
             3, QHeaderView.ResizeMode.Stretch
         )
 
-        self.table.setSelectionBehavior(
-            QTableWidget.SelectionBehavior.SelectRows
+        self.table.setSelectionMode(
+            QTableWidget.SelectionMode.SingleSelection
         )
+
         self.table.setEditTriggers(
             QTableWidget.EditTrigger.NoEditTriggers
         )
@@ -322,7 +332,12 @@ class AIFileManager(QMainWindow):
             self.open_selected_file
         )
 
-        right_layout.addWidget(self.table, 1)
+        self.table.itemSelectionChanged.connect(self.preview_selected_file)
+
+        # Add table to right layout
+        right_layout.addWidget(self.table, 2)
+        right_layout.addWidget(preview_label)
+        right_layout.addWidget(self.preview_table, 1)
 
         # Status
         self.status_label = QLabel("Sẵn sàng")
@@ -623,6 +638,25 @@ class AIFileManager(QMainWindow):
         self.status_label.setText(
             f"Tìm thấy {len(results)} tài liệu"
         )
+
+    # Preview selected file
+    def preview_selected_file(self):
+        selected_file = self.table.selectedItems()
+        if not selected_file:
+            self.preview_table.clear()
+            return
+
+        row = selected_file[0].row()
+        file_path = self.table.item(row, 3).text()
+        documents = get_documents()
+
+        for doc in documents:
+            if doc[4] == file_path:
+                content = doc[5]
+                self.preview_table.setPlainText(content)
+                return
+
+        self.preview_table.setPlainText("Không tìm thấy nội dung file")
 
     # Toggle display mode
 
