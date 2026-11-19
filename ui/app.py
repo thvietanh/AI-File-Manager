@@ -13,6 +13,9 @@ from PySide6.QtCore import QDate, Qt
 
 # Services
 from function.file_services import get_files, open_file
+from function.doc_services import index_document
+
+# Process
 from process.doc_extract import extract, official_extract
 
 # Database
@@ -24,6 +27,12 @@ from database.data import (
     get_documents,
     clear_database,
     get_filtered_official_documents
+)
+
+from database.embedded_data import (
+    create_chunks_table,
+    save_document_chunks,
+    get_document_chunks
 )
 
 class AIFileManager(QMainWindow):
@@ -42,7 +51,10 @@ class AIFileManager(QMainWindow):
 
         self.scaling_factor = 0.8
 
+        # Create database when open app
+
         create_table()
+        create_chunks_table()
 
         self.setup_ui()
         self.setup_window_size()
