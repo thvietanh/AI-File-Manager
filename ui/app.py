@@ -498,6 +498,11 @@ class AIFileManager(QMainWindow):
                         document_id, metadata
                     )
 
+                # Embedding
+                try:
+                    # fuck off
+                    pass
+
         # Get documents
         documents = get_documents()
 
