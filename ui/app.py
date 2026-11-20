@@ -7,13 +7,13 @@ from PySide6.QtWidgets import (
     QHBoxLayout, QPushButton, QLineEdit, QLabel,
     QTableWidget, QTableWidgetItem, QFileDialog,
     QComboBox, QHeaderView, QMessageBox, QSizePolicy,
-    QDateEdit, QGroupBox, QFormLayout, QTextEdit
+    QDateEdit, QGroupBox, QFormLayout, QTextEdit, QProgressBar
 )
-from PySide6.QtCore import QDate, Qt
+from PySide6.QtCore import QDate
 
 # Services
 from function.file_services import get_files, open_file
-from function.doc_services import index_document
+from function.thread import FileThread
 
 # Process
 from process.doc_extract import extract, official_extract
@@ -44,12 +44,24 @@ class AIFileManager(QMainWindow):
         self.root_folder = ""
         self.files = []
 
+        # Thread
+        self.worker = None
+
         # Display mode
         self.show_official_info = False
         self.displayed_files = []
         self.official_metadata = {}
 
         self.scaling_factor = 0.8
+
+        # Progress bar
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setMinimumWidth(200)
+        self.progress_bar.setMaximumWidth(300)
+        self.progress_bar.setValue(0)
+        self.progress_bar.hide()
+
+        self.statusBar().addPermanentWidget(self.progress_bar)
 
         # Create database when open app
 
@@ -316,7 +328,7 @@ class AIFileManager(QMainWindow):
         self.table.verticalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Fixed
         )
-        self.table.verticalHeader().setDefaultSectionSize(30)
+        self.table.verticalHeader().setDefaultSectionSize(60)
 
         header = self.table.horizontalHeader()
 
@@ -455,6 +467,7 @@ class AIFileManager(QMainWindow):
         )
 
         if folder:
+            if self.worker is not None and self.worker.isRunning(): return
             clear_database()
             self.root_folder = folder
             self.folder_label.setText(folder)
@@ -466,93 +479,24 @@ class AIFileManager(QMainWindow):
         if not self.root_folder:
             return
 
+        if self.worker is not None and self.worker.isRunning():
+            return
+
         self.files.clear()
         self.official_metadata.clear()
 
-        scanned_files = get_files(self.root_folder)
+        self.worker = FileThread(self.root_folder)
 
-        for file in scanned_files:
-            file_path = Path(file["path"])
-
-            try:
-                content = extract(file_path)
-            except Exception as e:
-                print(
-                    f"Error extracting content from {file_path}: {e}"
-                )
-                content = None
-
-            document_id = insert_document(
-                file_name=file["name"],
-                file_size=file["size"],
-                file_type=file["extension"],
-                file_path=file_path,
-                content=content
-            )
-
-            if document_id is not None and content:
-                metadata = official_extract(content)
-
-                if metadata:
-                    insert_official_document(
-                        document_id, metadata
-                    )
-
-                # Embedding
-                try:
-                    # fuck off
-                    pass
-
-        # Get documents
-        documents = get_documents()
-
-        # Load official metadata
-        official_documents = get_official_document()
-
-        self.official_metadata = {}
-
-        for doc in official_documents:
-            self.official_metadata[doc[0]] = {
-                "document_number": doc[6],
-                "signing_date": doc[7],
-                "effective_date": doc[8],
-                "deadline_date": doc[9]
-            }
-
-        root_path = os.path.normcase(
-            os.path.abspath(self.root_folder)
+        self.worker.progress.connect(self.on_loading_progress)
+        self.worker.error.connect(
+            lambda message: print("Error:", message)
         )
+        self.worker.finished.connect(self.on_loading_finished)
 
-        for doc in documents:
-            (
-                document_id,
-                file_name,
-                file_size,
-                file_type,
-                file_path,
-                content,
-                created_at
-            ) = doc
+        self.worker.start()
 
-            absolute_path = os.path.normcase(
-                os.path.abspath(file_path)
-            )
 
-            # Ensure the file is inside selected folder
-            if (
-                os.path.commonpath([absolute_path, root_path])
-                == root_path
-            ):
-                self.files.append({
-                    "id": document_id,
-                    "name": file_name,
-                    "size": file_size,
-                    "extension": file_type,
-                    "path": file_path,
-                    "content": content,
-                    "created_at": created_at
-                })
-
+        # Auto search at start
         self.search_files()
 
     # Search files
@@ -799,4 +743,80 @@ class AIFileManager(QMainWindow):
 
         clear_database()
         self.load_files()
+
+
+    # File thread function idk
+    def on_loading_progress(self, current, total, file_name):
+        self.progress_bar.show()
+
+        self.progress_bar.setRange(0, total)
+        self.progress_bar.setValue(current)
+
+        self.progress_bar.setFormat(
+            f"{current}/{total} files"
+        )
+
+        self.statusBar().showMessage(
+            f"Đang xử lý: {file_name}"
+        )
+
+    def on_loading_finished(self):
+        documents = get_documents()
+
+        official_documents = get_official_document()
+
+        self.official_metadata = {}
+
+        for doc in official_documents:
+            self.official_metadata[doc[0]] = {
+                "document_number": doc[6],
+                "signing_date": doc[7],
+                "effective_date": doc[8],
+                "deadline_date": doc[9]
+            }
+
+        root_path = os.path.normcase(
+            os.path.abspath(self.root_folder)
+        )
+
+        for doc in documents:
+            (
+                document_id,
+                file_name,
+                file_size,
+                file_type,
+                file_path,
+                content,
+                created_at
+            ) = doc
+
+            absolute_path = os.path.normcase(
+                os.path.abspath(file_path)
+            )
+
+            if (
+                os.path.commonpath([absolute_path, root_path])
+                == root_path
+            ):
+                self.files.append({
+                    "id": document_id,
+                    "name": file_name,
+                    "size": file_size,
+                    "extension": file_type,
+                    "path": file_path,
+                    "content": content,
+                    "created_at": created_at
+                })
+
+        self.search_files()
+
+        # Done
+
+        self.progress_bar.hide()
+        self.statusBar().showMessage(
+            "Đã hoàn tất xử lý tài liệu!", 5000
+        )
+
+        self.worker.deleteLater()
+        self.worker = None
 

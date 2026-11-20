@@ -70,7 +70,7 @@ def save_document_chunks(document_id, chunks):
 def get_document_chunks(document_id):
     connection = create_connection()
 
-    rows = conn.execute("""
+    rows = connection.execute("""
         SELECT chunk_index, content, embedding
         FROM document_chunks
         WHERE document_id = ?

@@ -2,7 +2,8 @@ from sentence_transformers import SentenceTransformer as st
 
 # Sentence transformers model
 
-model = st("intfloat/multilingual-e5-small")
+MODEL_NAME = "intfloat/multilingual-e5-small"
+model = st(MODEL_NAME)
 
 def generate_embedding(text, is_query = False):
     if not text or not text.strip():
