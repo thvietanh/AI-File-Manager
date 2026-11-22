@@ -1,24 +1,33 @@
-from sentence_transformers import SentenceTransformer as st
+from sentence_transformers import SentenceTransformer
 
-# Sentence transformers model
+MODEL_NAME = "intfloat/multilingual-e5-base"
+_model = None
 
-MODEL_NAME = "intfloat/multilingual-e5-small"
-model = st(MODEL_NAME)
+def get_model():
+    global _model
+    if _model is None:
+        _model = SentenceTransformer(MODEL_NAME)
+    return _model
 
-def generate_embedding(text, is_query = False):
+def generate_embedding(text, is_query=False):
     if not text or not text.strip():
         return None
 
-    # Prefix
-    if is_query:
-        text = "query: " + text
-    else:
-        text = "passage: " + text
+    prefix = "query: " if is_query else "passage: "
 
-    # Convert to vector
-    embedding = model.encode(
-        text,
-        normalize_embeddings = True
+    return get_model().encode(
+        prefix + text,
+        normalize_embeddings=True
     )
 
-    return embedding
+def generate_embeddings(texts, is_query=False, batch_size=32):
+    if not texts:
+        return []
+
+    prefix = "query: " if is_query else "passage: "
+
+    return get_model().encode(
+        [prefix + t for t in texts],
+        batch_size=batch_size,
+        normalize_embeddings=True
+    )

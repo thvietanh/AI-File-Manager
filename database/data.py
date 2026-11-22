@@ -259,7 +259,7 @@ def clear_database():
 
     cursor.execute("""
         DELETE FROM sqlite_sequence
-        WHERE name = 'documents'
+        WHERE name IN ('documents', 'document_chunks')
     """)
 
     conn.commit()

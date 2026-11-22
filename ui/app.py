@@ -52,6 +52,8 @@ class AIFileManager(QMainWindow):
         self.show_official_info = False
         self.displayed_files = []
         self.official_metadata = {}
+        self.semantic_scores = {}
+        self.show_semantic_scores = False
 
         self.scaling_factor = 0.8
 
@@ -65,7 +67,7 @@ class AIFileManager(QMainWindow):
         self.statusBar().addPermanentWidget(self.progress_bar)
 
         # Create database when open app
-
+        clear_database()
         create_table()
         create_chunks_table()
 
@@ -159,11 +161,11 @@ class AIFileManager(QMainWindow):
 
         semantic_button = QPushButton("Tìm theo nội dung")
         semantic_button.clicked.connect(self.semantic_search_files)
-        search_layout.addWidget(semantic_button)
 
         search_layout.addWidget(self.search_input)
         search_layout.addWidget(self.type_filter)
         search_layout.addWidget(search_button)
+        search_layout.addWidget(semantic_button)
 
         left_layout.addWidget(search_group)
 
@@ -489,6 +491,8 @@ class AIFileManager(QMainWindow):
 
         self.files.clear()
         self.official_metadata.clear()
+        self.semantic_scores.clear()
+        self.show_semantic_scores = False
 
         self.worker = FileThread(self.root_folder)
 
@@ -507,6 +511,9 @@ class AIFileManager(QMainWindow):
     # Search files
 
     def search_files(self):
+        self.semantic_scores.clear()
+        self.show_semantic_scores = False
+
         keyword = self.search_input.text().strip().lower()
         file_type = self.type_filter.currentText()
 
@@ -527,17 +534,24 @@ class AIFileManager(QMainWindow):
     def semantic_search_files(self):
         query = self.search_input.text().strip()
         if not query:
+            self.search_files()
             return
 
         hits = semantic_search(query, top_k=20)
 
         files_by_id = {f["id"]: f for f in self.files}
+        self.semantic_scores = {
+            h["document_id"]: h["score"]
+            for h in hits
+            if h["document_id"] in files_by_id
+        }
         results = [
             files_by_id[h["document_id"]]
             for h in hits
             if h["document_id"] in files_by_id
         ]
 
+        self.show_semantic_scores = True
         self.display_results(results)
 
     # Display results
@@ -545,24 +559,23 @@ class AIFileManager(QMainWindow):
     def display_results(self, results):
         self.displayed_files = results
 
+        headers = [
+            "Tên file",
+            "Định dạng",
+            "Kích thước",
+            "Đường dẫn"
+        ]
+
+        if self.show_semantic_scores:
+            headers.append("Độ tương đồng")
+
         if self.show_official_info:
-            headers = [
-                "Tên file",
-                "Định dạng",
-                "Kích thước",
-                "Đường dẫn",
+            headers.extend([
                 "Số công văn",
                 "Ngày ký",
                 "Ngày hiệu lực",
                 "Deadline"
-            ]
-        else:
-            headers = [
-                "Tên file",
-                "Định dạng",
-                "Kích thước",
-                "Đường dẫn"
-            ]
+            ])
 
         self.table.setColumnCount(len(headers))
         self.table.setHorizontalHeaderLabels(headers)
@@ -582,8 +595,15 @@ class AIFileManager(QMainWindow):
             3, QHeaderView.ResizeMode.Stretch
         )
 
+        score_column = 4 if self.show_semantic_scores else None
+        if score_column is not None:
+            header.setSectionResizeMode(
+                score_column, QHeaderView.ResizeMode.ResizeToContents
+            )
+
         if self.show_official_info:
-            for col in range(4, 8):
+            official_start = 5 if self.show_semantic_scores else 4
+            for col in range(official_start, official_start + 4):
                 header.setSectionResizeMode(
                     col, QHeaderView.ResizeMode.ResizeToContents
                 )
@@ -599,6 +619,14 @@ class AIFileManager(QMainWindow):
                 f"{size_mb:.2f} MB",
                 file["path"]
             ]
+
+            if self.show_semantic_scores:
+                score = self.semantic_scores.get(file["id"])
+                if score is None:
+                    values.append("")
+                else:
+                    similarity = max(0.0, min(1.0, float(score)))
+                    values.append(f"{similarity * 100:.1f}%")
 
             if self.show_official_info:
                 metadata = self.official_metadata.get(
@@ -683,6 +711,8 @@ class AIFileManager(QMainWindow):
     # Filters
 
     def clear_filters(self):
+        self.semantic_scores.clear()
+        self.show_semantic_scores = False
         self.document_number.clear()
 
         date_edits = [
@@ -697,6 +727,8 @@ class AIFileManager(QMainWindow):
         self.search_files()
 
     def filter_documents(self):
+        self.semantic_scores.clear()
+        self.show_semantic_scores = False
 
         document_number = self.document_number.text().strip()
 

@@ -1,21 +1,34 @@
-def split_text(text, chunk_size = 1500, overlap = 200):
+import re
+
+def split_text(text, chunk_size=800, overlap=100):
     if not text or not text.strip():
         return []
 
     if overlap >= chunk_size:
         raise ValueError("overlap must be lower than chunk_size")
 
+    units = []
+    for line in re.split(r"\n+", text):
+        line = line.strip()
+        while len(line) > chunk_size:
+            units.append(line[:chunk_size])
+            line = line[chunk_size:]
+        if line:
+            units.append(line)
+
     chunks = []
-    start = 0
+    current = ""
 
-    while start < len(text):
-        end = start + chunk_size
+    for unit in units:
+        if current and len(current) + len(unit) + 1 > chunk_size:
+            chunks.append(current)
+            tail = current[-overlap:]
+            tail = tail[tail.find(" ") + 1:] if " " in tail else ""
+            current = (tail + " " + unit).strip()
+        else:
+            current = (current + " " + unit) if current else unit
 
-        chunk = text[start:end].strip()
-
-        if chunk:
-            chunks.append(chunk)
-
-        start += chunk_size - overlap
+    if current:
+        chunks.append(current)
 
     return chunks

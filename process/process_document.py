@@ -1,24 +1,19 @@
 from process.chunking import split_text
-from process.embedding import generate_embedding
+from process.embedding import generate_embeddings
 
 def process_document(text):
-    # Chunking
-    chunks = split_text(
-        text,
-        chunk_size = 1500,
-        overlap = 200
-    )
+    chunks = split_text(text, chunk_size=800, overlap=100)
 
-    results = []
+    if not chunks:
+        return []
 
-    # Embedding
-    for index, chunk in enumerate(chunks):
-        embedding = generate_embedding(chunk)
+    embeddings = generate_embeddings(chunks)
 
-        results.append({
+    return [
+        {
             "chunk_index": index,
             "content": chunk,
             "embedding": embedding
-        })
-
-    return results
+        }
+        for index, (chunk, embedding) in enumerate(zip(chunks, embeddings))
+    ]
