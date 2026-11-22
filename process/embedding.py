@@ -1,7 +1,9 @@
 from sentence_transformers import SentenceTransformer
+import threading
 
 MODEL_NAME = "intfloat/multilingual-e5-base"
 _model = None
+_lock = threading.Lock()
 
 def get_model():
     global _model

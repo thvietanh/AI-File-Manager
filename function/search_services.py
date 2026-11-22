@@ -3,7 +3,9 @@ import numpy as np
 from process.embedding import generate_embedding
 from database.embedded_data import get_all_chunks
 
-def semantic_search(query, top_k=20, min_score=0.0):
+MIN_SCORE = 0.8
+
+def semantic_search(query, top_k=20, min_score=MIN_SCORE):
 
     query_vec = generate_embedding(query, is_query=True)
     if query_vec is None:

@@ -19,6 +19,10 @@ from function.search_services import semantic_search
 # Process
 from process.doc_extract import extract, official_extract
 
+# Threading
+import threading
+from process.embedding import get_model
+
 # Database
 from database.data import (
     create_table,
@@ -67,9 +71,11 @@ class AIFileManager(QMainWindow):
         self.statusBar().addPermanentWidget(self.progress_bar)
 
         # Create database when open app
-        clear_database()
         create_table()
         create_chunks_table()
+        clear_database()
+
+        threading.Thread(target=get_model, daemon=True).start()
 
         self.setup_ui()
         self.setup_window_size()
