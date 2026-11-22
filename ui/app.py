@@ -14,6 +14,7 @@ from PySide6.QtCore import QDate
 # Services
 from function.file_services import get_files, open_file
 from function.thread import FileThread
+from function.search_services import semantic_search
 
 # Process
 from process.doc_extract import extract, official_extract
@@ -155,6 +156,10 @@ class AIFileManager(QMainWindow):
 
         search_button = QPushButton("Tìm kiếm")
         search_button.clicked.connect(self.search_files)
+
+        semantic_button = QPushButton("Tìm theo nội dung")
+        semantic_button.clicked.connect(self.semantic_search_files)
+        search_layout.addWidget(semantic_button)
 
         search_layout.addWidget(self.search_input)
         search_layout.addWidget(self.type_filter)
@@ -516,6 +521,22 @@ class AIFileManager(QMainWindow):
                     continue
 
             results.append(file)
+
+        self.display_results(results)
+
+    def semantic_search_files(self):
+        query = self.search_input.text().strip()
+        if not query:
+            return
+
+        hits = semantic_search(query, top_k=20)
+
+        files_by_id = {f["id"]: f for f in self.files}
+        results = [
+            files_by_id[h["document_id"]]
+            for h in hits
+            if h["document_id"] in files_by_id
+        ]
 
         self.display_results(results)
 

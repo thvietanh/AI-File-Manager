@@ -101,7 +101,10 @@ def official_extract(content):
         re.IGNORECASE
     )
     if match:
-        metadata["effective_date"] = match.group(1)
+        day, month, year = re.split(r"[/-]", match.group(1))
+        metadata["effective_date"] = (
+            f"{day.zfill(2)}/{month.zfill(2)}/{year}"
+        )
 
     # Deadline
     match = re.search(
@@ -110,7 +113,10 @@ def official_extract(content):
         re.IGNORECASE
     )
     if match:
-        metadata["deadline_date"] = match.group(1)
+        day, month, year = re.split(r"[/-]", match.group(1))
+        metadata["deadline_date"] = (
+            f"{day.zfill(2)}/{month.zfill(2)}/{year}"
+        )
 
     # No info
     if not any(metadata.values()):

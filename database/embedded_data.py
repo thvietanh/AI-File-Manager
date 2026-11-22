@@ -94,3 +94,14 @@ def get_document_chunks(document_id):
         })
 
     return results
+
+def get_all_chunks():
+    connection = create_connection()
+
+    rows = connection.execute("""
+        SELECT document_id, chunk_index, content, embedding
+        FROM document_chunks
+    """).fetchall()
+
+    connection.close()
+    return rows
