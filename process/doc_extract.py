@@ -32,94 +32,66 @@ def extract(file_path):
     else:
         raise ValueError("Định dạng file không được hỗ trợ")
 
+DATE = (
+    r"(\d{1,2}\s*[/-]\s*\d{1,2}\s*[/-]\s*\d{4}"
+    r"|\d{1,2}\s+tháng\s+\d{1,2}\s+năm\s+\d{4})"
+)
+
+
+def to_ddmmyyyy(text):
+    match = (
+        re.search(r"(\d{1,2})\s*[/-]\s*(\d{1,2})\s*[/-]\s*(\d{4})", text)
+        or re.search(r"(\d{1,2})\s+tháng\s+(\d{1,2})\s+năm\s+(\d{4})", text)
+    )
+    if not match:
+        return None
+
+    day, month, year = match.groups()
+    if not (1 <= int(day) <= 31 and 1 <= int(month) <= 12):
+        return None
+
+    return f"{day.zfill(2)}/{month.zfill(2)}/{year}"
+
+
 def official_extract(content):
     if not content:
         return None
 
-    content_upper = content.upper()
-    if "CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM" not in content_upper:
+    # Chuẩn hóa khoảng trắng và cách viết "HOÀ" / "HÒA"
+    header = re.sub(r"\s+", " ", content.upper()).replace("HOÀ", "HÒA")
+    if "CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM" not in header:
         return None
 
     metadata = {
         "document_number": None,
         "signing_date": None,
         "effective_date": None,
-        "deadline_date": None
+        "deadline_date": None,
     }
 
-
-    # 123/QĐ-UBND, 45/2026/NĐ-CP
     patterns = {
         "document_number": r"Số\s*:\s*([0-9]+(?:/[A-ZĐ0-9-]+)+)",
-
-        # Signing date
-        "signing_date": (
-            r"(?:Hà Nội,\s*)?"
-            r"ngày\s+(\d{1,2})\s+tháng\s+"
-            r"(\d{1,2})\s+năm\s+(\d{4})"
-        ),
-
-        # Effective date
+        "signing_date": r"ngày\s+(\d{1,2}\s+tháng\s+\d{1,2}\s+năm\s+\d{4})",
         "effective_date": (
-            r"có hiệu lực(?: thi hành)?\s+"
-            r"(?:kể từ ngày|từ ngày)\s+"
-            r"(\d{1,2}[/-]\d{1,2}[/-]\d{4})"
+            r"có hiệu lực(?: thi hành)?\s+(?:kể từ ngày|từ ngày)\s+" + DATE
         ),
-
-        # Deadline
         "deadline_date": (
-            r"(?:hạn cuối|chậm nhất|trước ngày)\s+"
-            r"(\d{1,2}[/-]\d{1,2}[/-]\d{4})"
-        )
+            r"(?:hạn cuối|chậm nhất|trước ngày)\s+" + DATE
+        ),
     }
 
-    # number
-    match = re.search(
-        patterns["document_number"],
-        content,
-        re.IGNORECASE
-    )
-    if match:
-        metadata["document_number"] = match.group(1)
+    for key, pattern in patterns.items():
+        match = re.search(pattern, content, re.IGNORECASE)
+        if not match:
+            continue
 
-    # Sign
-    match = re.search(
-        patterns["signing_date"],
-        content,
-        re.IGNORECASE
-    )
-    if match:
-        day, month, year = match.groups()
-        metadata["signing_date"] = (
-            f"{day.zfill(2)}/{month.zfill(2)}/{year}"
-        )
+        if key == "document_number":
+            metadata[key] = match.group(1)
+        else:
+            metadata[key] = to_ddmmyyyy(match.group(1))
 
-    # Effective
-    match = re.search(
-        patterns["effective_date"],
-        content,
-        re.IGNORECASE
-    )
-    if match:
-        day, month, year = re.split(r"[/-]", match.group(1))
-        metadata["effective_date"] = (
-            f"{day.zfill(2)}/{month.zfill(2)}/{year}"
-        )
-
-    # Deadline
-    match = re.search(
-        patterns["deadline_date"],
-        content,
-        re.IGNORECASE
-    )
-    if match:
-        day, month, year = re.split(r"[/-]", match.group(1))
-        metadata["deadline_date"] = (
-            f"{day.zfill(2)}/{month.zfill(2)}/{year}"
-        )
-
-    # No info
-    if not any(metadata.values()):
+    # Văn bản không có số hiệu (hợp đồng, đơn từ...) thì không coi là công văn
+    if not metadata["document_number"]:
         return None
 
     return metadata 

@@ -7,8 +7,9 @@ _lock = threading.Lock()
 
 def get_model():
     global _model
-    if _model is None:
-        _model = SentenceTransformer(MODEL_NAME)
+    with _lock:
+        if _model is None:
+                _model = SentenceTransformer(MODEL_NAME)
     return _model
 
 def generate_embedding(text, is_query=False):

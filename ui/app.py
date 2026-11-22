@@ -146,32 +146,26 @@ class AIFileManager(QMainWindow):
         search_layout = QVBoxLayout(search_group)
 
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText(
-            "Nhập tên file hoặc nội dung..."
-        )
+        self.search_input.setPlaceholderText("Nhập từ khóa...")
         self.search_input.setMinimumHeight(38)
-        self.search_input.returnPressed.connect(
-            self.search_files
-        )
+        self.search_input.returnPressed.connect(self.run_search)
+
+        self.search_mode = QComboBox()
+        self.search_mode.addItems(["Tên file", "Nội dung"])
 
         self.type_filter = QComboBox()
         self.type_filter.addItems([
             "Tất cả định dạng", ".pdf", ".docx", ".txt"
         ])
-        self.type_filter.currentTextChanged.connect(
-            self.search_files
-        )
+        self.type_filter.currentTextChanged.connect(self.run_search)
 
         search_button = QPushButton("Tìm kiếm")
-        search_button.clicked.connect(self.search_files)
-
-        semantic_button = QPushButton("Tìm theo nội dung")
-        semantic_button.clicked.connect(self.semantic_search_files)
+        search_button.clicked.connect(self.run_search)
 
         search_layout.addWidget(self.search_input)
+        search_layout.addWidget(self.search_mode)
         search_layout.addWidget(self.type_filter)
         search_layout.addWidget(search_button)
-        search_layout.addWidget(semantic_button)
 
         left_layout.addWidget(search_group)
 
@@ -253,19 +247,12 @@ class AIFileManager(QMainWindow):
         filter_area = QHBoxLayout()
         filter_area.setSpacing(8)
 
-        filter_button = QPushButton("Lọc công văn")
-        filter_button.setFixedSize(110, 32)
-        filter_button.clicked.connect(
-            self.filter_documents
-        )
-
         clear_button = QPushButton("Xóa bộ lọc")
         clear_button.setFixedSize(110, 32)
         clear_button.clicked.connect(
             self.clear_filters
         )
 
-        filter_area.addWidget(filter_button)
         filter_area.addWidget(clear_button)
         filter_area.addStretch()
 
@@ -283,22 +270,8 @@ class AIFileManager(QMainWindow):
         refresh_button = QPushButton("Làm mới")
         refresh_button.clicked.connect(self.refresh_files)
 
-        self.mode_button = QPushButton(
-            "Hiện thông tin công văn"
-        )
-        self.mode_button.clicked.connect(
-            self.toggle_document_mode
-        )
-
-        open_button = QPushButton("Mở file")
-        open_button.clicked.connect(
-            self.open_selected_file
-        )
-
         toolbar.addWidget(choose_button)
         toolbar.addWidget(refresh_button)
-        toolbar.addWidget(self.mode_button)
-        toolbar.addWidget(open_button)
 
         left_layout.addWidget(toolbar_group)
         left_layout.addStretch()
@@ -514,6 +487,32 @@ class AIFileManager(QMainWindow):
         # Auto search at start
         self.search_files()
 
+    def has_official_filter(self):
+        if self.document_number.text().strip():
+            return True
+
+        date_edits = [
+            self.signing_from, self.signing_to,
+            self.effective_from, self.effective_to,
+            self.deadline_from, self.deadline_to,
+        ]
+        return any(e.date() != e.minimumDate() for e in date_edits)
+
+    def run_search(self):
+        has_filter = self.has_official_filter()
+
+        # Tự hiện cột công văn khi đang lọc, thay cho nút bật/tắt
+        self.show_official_info = has_filter
+
+        query = self.search_input.text().strip()
+
+        if self.search_mode.currentText() == "Nội dung" and query:
+            self.semantic_search_files()
+        elif has_filter:
+            self.filter_documents()
+        else:
+            self.search_files()
+
     # Search files
 
     def search_files(self):
@@ -543,19 +542,52 @@ class AIFileManager(QMainWindow):
             self.search_files()
             return
 
-        hits = semantic_search(query, top_k=20)
+        def get_date(date_edit):
+            if date_edit.date() == date_edit.minimumDate():
+                return None
+            return date_edit.date().toString("yyyy-MM-dd")
+
+        document_number = self.document_number.text().strip() or None
+        dates = {
+            "signing_from": get_date(self.signing_from),
+            "signing_to": get_date(self.signing_to),
+            "effective_from": get_date(self.effective_from),
+            "effective_to": get_date(self.effective_to),
+            "deadline_from": get_date(self.deadline_from),
+            "deadline_to": get_date(self.deadline_to),
+        }
+
+        allowed_ids = None
+        if document_number or any(dates.values()):
+            rows = get_filtered_official_documents(
+                document_number=document_number, **dates
+            )
+            allowed_ids = {row[0] for row in rows}
+
+        hits = semantic_search(
+            query, top_k=1000 if allowed_ids is not None else 20
+        )
 
         files_by_id = {f["id"]: f for f in self.files}
-        self.semantic_scores = {
-            h["document_id"]: h["score"]
-            for h in hits
+        hits = [
+            h for h in hits
             if h["document_id"] in files_by_id
-        }
-        results = [
-            files_by_id[h["document_id"]]
-            for h in hits
-            if h["document_id"] in files_by_id
+            and (allowed_ids is None or h["document_id"] in allowed_ids)
         ]
+
+        file_type = self.type_filter.currentText()
+        if file_type != "Tất cả định dạng":
+            hits = [
+                h for h in hits
+                if files_by_id[h["document_id"]]["extension"] == file_type
+            ]
+
+        hits = hits[:20]
+
+        self.semantic_scores = {
+            h["document_id"]: h["score"] for h in hits
+        }
+        results = [files_by_id[h["document_id"]] for h in hits]
 
         self.show_semantic_scores = True
         self.display_results(results)
@@ -674,22 +706,6 @@ class AIFileManager(QMainWindow):
 
         self.preview_table.setPlainText("Không tìm thấy nội dung file")
 
-    # Toggle display mode
-
-    def toggle_document_mode(self):
-        self.show_official_info = not self.show_official_info
-
-        if self.show_official_info:
-            self.mode_button.setText(
-                "Ẩn thông tin công văn"
-            )
-        else:
-            self.mode_button.setText(
-                "Hiện thông tin công văn"
-            )
-
-        self.display_results(self.displayed_files)
-
     # Open selected file
 
     def open_selected_file(self):
@@ -730,7 +746,7 @@ class AIFileManager(QMainWindow):
         for date_edit in date_edits:
             date_edit.setDate(date_edit.minimumDate())
 
-        self.search_files()
+        self.run_search()
 
     def filter_documents(self):
         self.semantic_scores.clear()
