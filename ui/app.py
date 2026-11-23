@@ -1,7 +1,3 @@
-import os
-import sys
-from pathlib import Path
-
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout,
     QHBoxLayout, QPushButton, QLineEdit, QLabel,
@@ -12,33 +8,19 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import QDate
 
 # Services
-from function.file_services import get_files, open_file
+from function.file_services import open_file
 from function.thread import FileThread
-from function.search_services import semantic_search
-
-# Process
-from process.doc_extract import extract, official_extract
-
-# Threading
-import threading
-from process.embedding import get_model
-
-# Database
-from database.data import (
-    create_table,
-    insert_document,
-    insert_official_document,
-    get_official_document,
-    get_documents,
-    clear_database,
-    get_filtered_official_documents
+from function.doc_services import (
+    init_database,
+    reset_index,
+    load_indexed_files
+)
+from function.search_services import (
+    search_documents,
+    has_official_filter,
+    warm_up_model
 )
 
-from database.embedded_data import (
-    create_chunks_table,
-    save_document_chunks,
-    get_document_chunks
-)
 
 class AIFileManager(QMainWindow):
 
@@ -71,11 +53,10 @@ class AIFileManager(QMainWindow):
         self.statusBar().addPermanentWidget(self.progress_bar)
 
         # Create database when open app
-        create_table()
-        create_chunks_table()
-        clear_database()
+        init_database()
+        reset_index()
 
-        threading.Thread(target=get_model, daemon=True).start()
+        warm_up_model()
 
         self.setup_ui()
         self.setup_window_size()
@@ -454,7 +435,7 @@ class AIFileManager(QMainWindow):
 
         if folder:
             if self.worker is not None and self.worker.isRunning(): return
-            clear_database()
+            reset_index()
             self.root_folder = folder
             self.folder_label.setText(folder)
             self.load_files()
@@ -485,70 +466,19 @@ class AIFileManager(QMainWindow):
 
 
         # Auto search at start
-        self.search_files()
+        self.run_search()
 
-    def has_official_filter(self):
-        if self.document_number.text().strip():
-            return True
+    # Search
 
-        date_edits = [
-            self.signing_from, self.signing_to,
-            self.effective_from, self.effective_to,
-            self.deadline_from, self.deadline_to,
-        ]
-        return any(e.date() != e.minimumDate() for e in date_edits)
-
-    def run_search(self):
-        has_filter = self.has_official_filter()
-
-        # Tự hiện cột công văn khi đang lọc, thay cho nút bật/tắt
-        self.show_official_info = has_filter
-
-        query = self.search_input.text().strip()
-
-        if self.search_mode.currentText() == "Nội dung" and query:
-            self.semantic_search_files()
-        elif has_filter:
-            self.filter_documents()
-        else:
-            self.search_files()
-
-    # Search files
-
-    def search_files(self):
-        self.semantic_scores.clear()
-        self.show_semantic_scores = False
-
-        keyword = self.search_input.text().strip().lower()
-        file_type = self.type_filter.currentText()
-
-        results = []
-
-        for file in self.files:
-            if keyword and keyword not in file["name"].lower():
-                continue
-
-            if file_type != "Tất cả định dạng":
-                if file["extension"] != file_type:
-                    continue
-
-            results.append(file)
-
-        self.display_results(results)
-
-    def semantic_search_files(self):
-        query = self.search_input.text().strip()
-        if not query:
-            self.search_files()
-            return
-
+    def read_filters(self):
         def get_date(date_edit):
             if date_edit.date() == date_edit.minimumDate():
                 return None
+
             return date_edit.date().toString("yyyy-MM-dd")
 
-        document_number = self.document_number.text().strip() or None
-        dates = {
+        return {
+            "document_number": self.document_number.text().strip() or None,
             "signing_from": get_date(self.signing_from),
             "signing_to": get_date(self.signing_to),
             "effective_from": get_date(self.effective_from),
@@ -557,40 +487,32 @@ class AIFileManager(QMainWindow):
             "deadline_to": get_date(self.deadline_to),
         }
 
-        allowed_ids = None
-        if document_number or any(dates.values()):
-            rows = get_filtered_official_documents(
-                document_number=document_number, **dates
-            )
-            allowed_ids = {row[0] for row in rows}
+    def run_search(self):
+        filters = self.read_filters()
 
-        hits = semantic_search(
-            query, top_k=1000 if allowed_ids is not None else 20
+        self.show_official_info = has_official_filter(filters)
+
+        mode = (
+            "content"
+            if self.search_mode.currentText() == "Nội dung"
+            else "name"
         )
 
-        files_by_id = {f["id"]: f for f in self.files}
-        hits = [
-            h for h in hits
-            if h["document_id"] in files_by_id
-            and (allowed_ids is None or h["document_id"] in allowed_ids)
-        ]
-
         file_type = self.type_filter.currentText()
-        if file_type != "Tất cả định dạng":
-            hits = [
-                h for h in hits
-                if files_by_id[h["document_id"]]["extension"] == file_type
-            ]
+        if file_type == "Tất cả định dạng":
+            file_type = None
 
-        hits = hits[:20]
+        result = search_documents(
+            self.files,
+            query=self.search_input.text(),
+            mode=mode,
+            file_type=file_type,
+            filters=filters
+        )
 
-        self.semantic_scores = {
-            h["document_id"]: h["score"] for h in hits
-        }
-        results = [files_by_id[h["document_id"]] for h in hits]
-
-        self.show_semantic_scores = True
-        self.display_results(results)
+        self.semantic_scores = result.scores
+        self.show_semantic_scores = result.semantic
+        self.display_results(result.files)
 
     # Display results
 
@@ -605,7 +527,7 @@ class AIFileManager(QMainWindow):
         ]
 
         if self.show_semantic_scores:
-            headers.append("Độ tương đồng")
+            headers.append("Điểm")
 
         if self.show_official_info:
             headers.extend([
@@ -660,11 +582,7 @@ class AIFileManager(QMainWindow):
 
             if self.show_semantic_scores:
                 score = self.semantic_scores.get(file["id"])
-                if score is None:
-                    values.append("")
-                else:
-                    similarity = max(0.0, min(1.0, float(score)))
-                    values.append(f"{similarity * 100:.1f}%")
+                values.append("" if score is None else f"{float(score):.3f}")
 
             if self.show_official_info:
                 metadata = self.official_metadata.get(
@@ -695,12 +613,10 @@ class AIFileManager(QMainWindow):
             return
 
         row = selected_file[0].row()
-        file_path = self.table.item(row, 3).text()
-        documents = get_documents()
 
-        for doc in documents:
-            if doc[4] == file_path:
-                content = doc[5]
+        if 0 <= row < len(self.displayed_files):
+            content = self.displayed_files[row].get("content")
+            if content:
                 self.preview_table.setPlainText(content)
                 return
 
@@ -748,75 +664,13 @@ class AIFileManager(QMainWindow):
 
         self.run_search()
 
-    def filter_documents(self):
-        self.semantic_scores.clear()
-        self.show_semantic_scores = False
-
-        document_number = self.document_number.text().strip()
-
-        def get_date(date_edit):
-            if date_edit.date() == date_edit.minimumDate():
-                return None
-
-            return date_edit.date().toString("yyyy-MM-dd")
-
-        results = get_filtered_official_documents(
-            document_number=document_number or None,
-
-            signing_from=get_date(self.signing_from),
-            signing_to=get_date(self.signing_to),
-
-            effective_from=get_date(self.effective_from),
-            effective_to=get_date(self.effective_to),
-
-            deadline_from=get_date(self.deadline_from),
-            deadline_to=get_date(self.deadline_to)
-        )
-
-        filtered_files = []
-
-        keyword = self.search_input.text().strip().lower()
-        file_type = self.type_filter.currentText()
-
-        for doc in results:
-            (
-                document_id,
-                name,
-                size,
-                extension,
-                path,
-                content,
-                created_at
-            ) = doc
-
-            if keyword and keyword not in name.lower():
-                continue
-
-            if (
-                file_type != "Tất cả định dạng"
-                and extension != file_type
-            ):
-                continue
-
-            filtered_files.append({
-                "id": document_id,
-                "name": name,
-                "size": size,
-                "extension": extension,
-                "path": path,
-                "content": content,
-                "created_at": created_at
-            })
-
-        self.display_results(filtered_files)
-
     # Refresh files
 
     def refresh_files(self):
         if not self.root_folder:
             return
 
-        clear_database()
+        reset_index()
         self.load_files()
 
 
@@ -836,54 +690,11 @@ class AIFileManager(QMainWindow):
         )
 
     def on_loading_finished(self):
-        documents = get_documents()
-
-        official_documents = get_official_document()
-
-        self.official_metadata = {}
-
-        for doc in official_documents:
-            self.official_metadata[doc[0]] = {
-                "document_number": doc[6],
-                "signing_date": doc[7],
-                "effective_date": doc[8],
-                "deadline_date": doc[9]
-            }
-
-        root_path = os.path.normcase(
-            os.path.abspath(self.root_folder)
+        self.files, self.official_metadata = load_indexed_files(
+            self.root_folder
         )
 
-        for doc in documents:
-            (
-                document_id,
-                file_name,
-                file_size,
-                file_type,
-                file_path,
-                content,
-                created_at
-            ) = doc
-
-            absolute_path = os.path.normcase(
-                os.path.abspath(file_path)
-            )
-
-            if (
-                os.path.commonpath([absolute_path, root_path])
-                == root_path
-            ):
-                self.files.append({
-                    "id": document_id,
-                    "name": file_name,
-                    "size": file_size,
-                    "extension": file_type,
-                    "path": file_path,
-                    "content": content,
-                    "created_at": created_at
-                })
-
-        self.search_files()
+        self.run_search()
 
         # Done
 
@@ -894,4 +705,3 @@ class AIFileManager(QMainWindow):
 
         self.worker.deleteLater()
         self.worker = None
-
