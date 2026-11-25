@@ -9,7 +9,7 @@ from PySide6.QtCore import QDate
 
 # Services
 from function.file_services import open_file
-from function.thread import FileThread
+from function.thread import FileThread, SearchThread
 from function.doc_services import (
     init_database,
     reset_index,
@@ -33,6 +33,7 @@ class AIFileManager(QMainWindow):
 
         # Thread
         self.worker = None
+        self.search_worker = None
 
         # Display mode
         self.show_official_info = False
@@ -116,8 +117,9 @@ class AIFileManager(QMainWindow):
 
         # LEFT PANEL
 
-        left_panel = QWidget()
-        left_panel.setFixedWidth(320)
+        self.left_panel = QWidget()
+        self.left_panel.setFixedWidth(320)
+        left_panel = self.left_panel
 
         left_layout = QVBoxLayout(left_panel)
         left_layout.setContentsMargins(0, 0, 0, 0)
@@ -483,10 +485,6 @@ class AIFileManager(QMainWindow):
 
         self.worker.start()
 
-
-        # Auto search at start
-        self.run_search()
-
     # Search
 
     def read_filters(self):
@@ -507,6 +505,10 @@ class AIFileManager(QMainWindow):
         }
 
     def run_search(self):
+        if self.search_worker is not None:
+            if self.search_worker.isRunning():
+                return
+
         filters = self.read_filters()
 
         self.show_official_info = has_official_filter(filters)
@@ -521,18 +523,53 @@ class AIFileManager(QMainWindow):
         if file_type == "Tất cả định dạng":
             file_type = None
 
-        result = search_documents(
-            self.files,
-            query=self.search_input.text(),
-            mode=mode,
-            file_type=file_type,
-            filters=filters
+        self.status_label.setText("Đang tìm kiếm...")
+
+        self.left_panel.setEnabled(False)
+
+        self.search_worker = SearchThread(
+            self.files.copy(),
+            self.search_input.text(),
+            mode,
+            file_type,
+            filters
         )
 
+        self.search_worker.result_ready.connect(
+            self.on_search_result
+        )
+
+        self.search_worker.error.connect(
+            self.on_search_error
+        )
+
+        self.search_worker.finished.connect(
+            self.on_search_finished
+        )
+
+        self.search_worker.start()
+
+    def on_search_result(self, result):
         self.semantic_scores = result.scores
         self.semantic_snippets = result.snippets
         self.show_semantic_scores = result.semantic
+
         self.display_results(result.files)
+
+    def on_search_error(self, message):
+        self.status_label.setText("Tìm kiếm thất bại.")
+
+        QMessageBox.warning(
+            self,
+            "Lỗi tìm kiếm",
+            message
+        )
+
+    def on_search_finished(self):
+        self.left_panel.setEnabled(True)
+
+        self.search_worker.deleteLater()
+        self.search_worker = None
 
     # Display results
 
@@ -604,10 +641,9 @@ class AIFileManager(QMainWindow):
                 file_id = file["id"]
                 score = self.semantic_scores.get(file_id)
                 snippet = self.semantic_snippets.get(file_id, "")
-                values.extend([
-                    "" if score is None else f"{float(score):.3f}",
-                    snippet
-                ])
+                values.append(
+                    "" if score is None else f"{float(score):.3f}"
+                )
 
             if self.show_official_info:
                 metadata = self.official_metadata.get(

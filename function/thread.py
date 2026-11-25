@@ -63,3 +63,34 @@ class FileThread(QThread):
 
         except Exception as e:
             self.error.emit(str(e))
+
+
+class SearchThread(QThread):
+    result_ready = Signal(object)
+    error = Signal(str)
+
+    def __init__(self, files, query, mode, file_type, filters):
+        super().__init__()
+
+        self.files = files
+        self.query = query
+        self.mode = mode
+        self.file_type = file_type
+        self.filters = filters
+
+    def run(self):
+        try:
+            from function.search_services import search_documents
+
+            result = search_documents(
+                self.files,
+                query=self.query,
+                mode=self.mode,
+                file_type=self.file_type,
+                filters=self.filters
+            )
+
+            self.result_ready.emit(result)
+
+        except Exception as e:
+            self.error.emit(str(e))
