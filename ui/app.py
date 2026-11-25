@@ -40,6 +40,7 @@ class AIFileManager(QMainWindow):
         self.official_metadata = {}
         self.semantic_scores = {}
         self.show_semantic_scores = False
+        self.semantic_snippets = {}
 
         self.scaling_factor = 0.8
 
@@ -285,17 +286,31 @@ class AIFileManager(QMainWindow):
 
         # Preview tab
 
-        preview_label = QLabel("Nội dung trích xuất")
-        preview_label.setStyleSheet("QLabel {font-weight: bold;}")
+        # Search result preview
+        snippet_label = QLabel("Đoạn nội dung tìm kiếm được")
+        snippet_label.setStyleSheet("font-weight: bold;")
+
+        self.snippet_preview = QTextEdit()
+        self.snippet_preview.setReadOnly(True)
+        self.snippet_preview.setPlaceholderText(
+            "Đoạn nội dung phù hợp sẽ hiển thị ở đây..."
+        )
+
+        # Extracted document content
+        preview_label = QLabel("Nội dung tài liệu trích xuất")
+        preview_label.setStyleSheet("font-weight: bold;")
+
         self.preview_table = QTextEdit()
         self.preview_table.setReadOnly(True)
-        self.preview_table.setPlaceholderText("Chọn 1 file để xem trước nội dung...")
+        self.preview_table.setPlaceholderText(
+            "Chọn một file để xem nội dung..."
+        )
 
 
         self.table.verticalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Fixed
         )
-        self.table.verticalHeader().setDefaultSectionSize(60)
+        self.table.verticalHeader().setDefaultSectionSize(30)
 
         header = self.table.horizontalHeader()
 
@@ -326,9 +341,13 @@ class AIFileManager(QMainWindow):
         self.table.itemSelectionChanged.connect(self.preview_selected_file)
 
         # Add table to right layout
-        right_layout.addWidget(self.table, 2)
+        right_layout.addWidget(self.table, 5)
+
+        right_layout.addWidget(snippet_label)
+        right_layout.addWidget(self.snippet_preview, 2)
+
         right_layout.addWidget(preview_label)
-        right_layout.addWidget(self.preview_table, 1)
+        right_layout.addWidget(self.preview_table, 3)
 
         # Status
         self.status_label = QLabel("Sẵn sàng")
@@ -511,6 +530,7 @@ class AIFileManager(QMainWindow):
         )
 
         self.semantic_scores = result.scores
+        self.semantic_snippets = result.snippets
         self.show_semantic_scores = result.semantic
         self.display_results(result.files)
 
@@ -527,7 +547,7 @@ class AIFileManager(QMainWindow):
         ]
 
         if self.show_semantic_scores:
-            headers.append("Điểm")
+            headers.extend(["Điểm"])
 
         if self.show_official_info:
             headers.extend([
@@ -562,7 +582,7 @@ class AIFileManager(QMainWindow):
             )
 
         if self.show_official_info:
-            official_start = 5 if self.show_semantic_scores else 4
+            official_start = 6 if self.show_semantic_scores else 4
             for col in range(official_start, official_start + 4):
                 header.setSectionResizeMode(
                     col, QHeaderView.ResizeMode.ResizeToContents
@@ -581,8 +601,13 @@ class AIFileManager(QMainWindow):
             ]
 
             if self.show_semantic_scores:
-                score = self.semantic_scores.get(file["id"])
-                values.append("" if score is None else f"{float(score):.3f}")
+                file_id = file["id"]
+                score = self.semantic_scores.get(file_id)
+                snippet = self.semantic_snippets.get(file_id, "")
+                values.extend([
+                    "" if score is None else f"{float(score):.3f}",
+                    snippet
+                ])
 
             if self.show_official_info:
                 metadata = self.official_metadata.get(
@@ -608,22 +633,30 @@ class AIFileManager(QMainWindow):
     # Preview selected file
     def preview_selected_file(self):
         selected_file = self.table.selectedItems()
+
         if not selected_file:
+            self.snippet_preview.clear()
             self.preview_table.clear()
             return
 
         row = selected_file[0].row()
 
         if 0 <= row < len(self.displayed_files):
-            content = self.displayed_files[row].get("content")
-            if content:
-                self.preview_table.setPlainText(content)
-                return
+            file = self.displayed_files[row]
+            file_id = file["id"]
 
-        self.preview_table.setPlainText("Không tìm thấy nội dung file")
+            snippet = self.semantic_snippets.get(file_id, "")
+            content = file.get("content") or ""
+
+            self.snippet_preview.setPlainText(
+                snippet if snippet else "Không có đoạn nội dung phù hợp."
+            )
+
+            self.preview_table.setPlainText(
+                content if content else "Không tìm thấy nội dung tài liệu."
+            )
 
     # Open selected file
-
     def open_selected_file(self):
         row = self.table.currentRow()
 

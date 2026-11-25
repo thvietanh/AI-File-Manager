@@ -7,6 +7,8 @@ from process.embedding import generate_embedding, get_model
 from database.data import get_filtered_official_documents
 from database.embedded_data import get_all_chunks
 
+from process.query_understanding import understand_query
+
 MIN_SCORE = 0.80
 SCORE_MARGIN = 0.03
 
@@ -21,8 +23,8 @@ FILTER_KEYS = (
 class SearchResult(NamedTuple):
     files: list
     scores: dict
+    snippets: dict
     semantic: bool
-
 
 def warm_up_model():
     threading.Thread(target=get_model, daemon=True).start()
@@ -97,14 +99,19 @@ def search_documents(files, query="", mode="name", file_type=None,
             allowed &= official_ids
 
         if not allowed:
-            return SearchResult([], {}, True)
+            return SearchResult([], {}, {}, True)
 
+        # Understand query
+        query = understand_query(query)
+        print("Processed query: ", query)
+        
         hits = semantic_search(query, top_k=top_k, allowed_ids=allowed)
 
         files_by_id = {f["id"]: f for f in files}
         return SearchResult(
             [files_by_id[h["document_id"]] for h in hits],
             {h["document_id"]: h["score"] for h in hits},
+            {h["document_id"]: h["snippet"] for h in hits},
             True
         )
 
@@ -115,4 +122,4 @@ def search_documents(files, query="", mode="name", file_type=None,
         and (official_ids is None or f["id"] in official_ids)
     ]
 
-    return SearchResult(results, {}, False)
+    return SearchResult(results, {}, {}, False)
