@@ -10,7 +10,7 @@ client = genai.Client(
     http_options=types.HttpOptions(timeout=10_000)
 )
 
-MODEL_NAME = "gemini-3.5-flash"
+MODEL_NAME = "gemini-3.5-flash-lite"
 
 
 def understand_query(query):
