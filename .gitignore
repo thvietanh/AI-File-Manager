@@ -2,3 +2,6 @@
 database/database.db
 test_model.py
 testing_process
+
+__pycache__/
+*.py[cod]
