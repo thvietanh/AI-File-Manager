@@ -105,3 +105,22 @@ def get_all_chunks():
 
     connection.close()
     return rows
+
+
+def get_chunks_for_document_ids(document_ids):
+    ids = sorted(set(document_ids))
+    if not ids:
+        return []
+
+    connection = create_connection()
+    placeholders = ", ".join("?" for _ in ids)
+    rows = connection.execute(
+        f"""
+        SELECT document_id, chunk_index, content, embedding
+        FROM document_chunks
+        WHERE document_id IN ({placeholders})
+        """,
+        ids
+    ).fetchall()
+    connection.close()
+    return rows

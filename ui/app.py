@@ -33,6 +33,7 @@ class AIFileManager(QMainWindow):
         # Thread
         self.worker = None
         self.search_worker = None
+        self.pending_search = False
 
         # Display mode
         self.show_official_info = False
@@ -507,7 +508,9 @@ class AIFileManager(QMainWindow):
     def run_search(self):
         if self.search_worker is not None:
             if self.search_worker.isRunning():
+                self.pending_search = True
                 return
+        self.pending_search = False
 
         filters = self.read_filters()
 
@@ -524,8 +527,6 @@ class AIFileManager(QMainWindow):
             file_type = None
 
         self.status_label.setText("Đang tìm kiếm...")
-
-        self.left_panel.setEnabled(False)
 
         self.search_worker = SearchThread(
             self.files.copy(),
@@ -566,10 +567,10 @@ class AIFileManager(QMainWindow):
         )
 
     def on_search_finished(self):
-        self.left_panel.setEnabled(True)
-
         self.search_worker.deleteLater()
         self.search_worker = None
+        if self.pending_search:
+            self.run_search()
 
     # Display results
 

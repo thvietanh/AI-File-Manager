@@ -5,7 +5,7 @@ import numpy as np
 
 from process.embedding import generate_embedding, get_model
 from database.data import get_filtered_official_documents
-from database.embedded_data import get_all_chunks
+from database.embedded_data import get_chunks_for_document_ids
 
 from process.query_understanding import understand_query
 
@@ -41,11 +41,12 @@ def semantic_search(query, top_k=20, min_score=MIN_SCORE,
     if query_vec is None:
         return []
 
-    rows = get_all_chunks()
-
     if allowed_ids is not None:
         allowed = set(allowed_ids)
-        rows = [row for row in rows if row[0] in allowed]
+        rows = get_chunks_for_document_ids(allowed)
+    else:
+        from database.embedded_data import get_all_chunks
+        rows = get_all_chunks()
 
     if not rows:
         return []
