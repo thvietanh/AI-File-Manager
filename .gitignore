@@ -1,2 +1,4 @@
 .env
 database/database.db
+test_model.py
+testing_process
