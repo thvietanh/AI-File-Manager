@@ -9,6 +9,8 @@ from database.data import (
     insert_official_document
 )
 
+SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".txt"}
+
 class FileThread(QThread):
     progress = Signal(int, int, str)
     error = Signal(str)
@@ -20,6 +22,11 @@ class FileThread(QThread):
     def run(self):
         try:
             scanned_files = get_files(self.folder)
+            scanned_files = [
+                file for file in scanned_files
+                if Path(file["path"]).suffix.lower() in SUPPORTED_EXTENSIONS
+            ]
+
             total = len(scanned_files)
 
             from function.doc_services import index_document
