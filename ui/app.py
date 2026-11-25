@@ -16,7 +16,6 @@ from function.doc_services import (
     load_indexed_files
 )
 from function.search_services import (
-    search_documents,
     has_official_filter,
     warm_up_model
 )
@@ -136,6 +135,7 @@ class AIFileManager(QMainWindow):
 
         self.search_mode = QComboBox()
         self.search_mode.addItems(["Tên file", "Nội dung"])
+        self.search_mode.currentTextChanged.connect(self.run_search)
 
         self.type_filter = QComboBox()
         self.type_filter.addItems([
@@ -640,7 +640,6 @@ class AIFileManager(QMainWindow):
             if self.show_semantic_scores:
                 file_id = file["id"]
                 score = self.semantic_scores.get(file_id)
-                snippet = self.semantic_snippets.get(file_id, "")
                 values.append(
                     "" if score is None else f"{float(score):.3f}"
                 )
@@ -737,6 +736,9 @@ class AIFileManager(QMainWindow):
 
     def refresh_files(self):
         if not self.root_folder:
+            return
+
+        if self.worker is not None and self.worker.isRunning():
             return
 
         reset_index()
